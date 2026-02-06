@@ -134,6 +134,10 @@ class GCell
   void print(utl::Logger* logger, bool print_only_name) const;
   void writeAttributesToCSV(std::ostream& out) const;
 
+  void setDiffusionForce(float forceX, float forceY);
+  void getDiffusionForceX() const { return diff_force_x_; }
+  void getDiffusionForceY() const { return diff_force_y_; }
+
  private:
   std::vector<Instance*> insts_;
   std::vector<GPin*> gPins_;
@@ -150,6 +154,9 @@ class GCell
   float densityScale_ = 0;
   float gradientX_ = 0;
   float gradientY_ = 0;
+
+  float diff_force_x_ = 0.0;
+  float diff_force_y_ = 0.0;
 
   GCellChange change_ = GCellChange::kNone;
 };
@@ -1142,11 +1149,20 @@ class NesterovBase
 
   odb::dbGroup* getGroup() const { return pb_->getGroup(); }
 
+  std::vector<FloatPoint>& getDiffusionForce() { return diffusionForce_; }
+  void resizeDiffusionForce();
+
+  void setDiffusionCoeff(float coeff) { diffusionCoeff_ = coeff; }
+
  private:
   NesterovBaseVars nbVars_;
   std::shared_ptr<PlacerBase> pb_;
   std::shared_ptr<NesterovBaseCommon> nbc_;
   utl::Logger* log_ = nullptr;
+
+  std::vector<FloatPoint> diffusionForce_;
+  
+  float diffusionCoeff_ = 0.0f;
 
   BinGrid bg_;
   std::unique_ptr<FFT> fft_;

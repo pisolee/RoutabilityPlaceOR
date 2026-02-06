@@ -44,6 +44,21 @@ NesterovPlace::NesterovPlace(const NesterovPlaceVars& npVars,
   tb_ = std::move(tb);
   log_ = log;
 
+  if (rb_) {
+    std::pair<int, int> gridSize = rb_->getGridSize();
+    bin_cnt_x_ = gridSize.first;
+    bin_cnt_y_ = gridSize.second;
+
+    // 타일 크기 (Rudy는 정사각형 타일 사용)
+    int tSize = rb_->getTileSize();
+    bin_size_x_ = tSize;
+    bin_size_y_ = tSize;
+
+    std::pair<int, int> origin = rb_->getGridOrigin();
+    core_lx_ = origin.first;
+    core_ly_ = origin.second;
+  }
+
   db_cbk_ = std::make_unique<nesterovDbCbk>(this);
   nbc_->setCbk(db_cbk_.get());
   if (npVars_.timingDrivenMode) {
@@ -69,6 +84,66 @@ NesterovPlace::NesterovPlace(const NesterovPlaceVars& npVars,
 NesterovPlace::~NesterovPlace()
 {
   reset();
+}
+
+// piso
+void NesterovPlace::computeDiffusionForceCell(const std::vector<float>& diffusion_force_bin) {
+  // clamping
+  auto getBinValue = [&](int grid_x, int grid_y, int idx_offset) -> float {
+    int cx = std::max(0, std::min(grid_x, bin_cnt_x_ - 1));
+    int cy = std::max(0, std::min(grid_y, bin_cnt_y_ - 1));
+
+    int index = (cy * bin_cnt_x_ + cx) * 2 + idx_offset;
+    return diffusion_force_bin[index];
+  };
+
+  for (auto& nb : nbVec_) {
+    nb->resizeDiffusionForce();
+    auto& diffusionForceVec = nb->getDiffusionForce(); // diffusionForce_ in class NesterovBase
+    const auto& gCells = nb->getGCells();
+    for (size_t i = 0; i < gCells.size(); ++i) {
+      auto& gCell = gCells[i];
+//    for (auto& gCell : nb->getGCells()) {
+      // skip macro & fixed cells
+      diffusionForceVec[i] = {0.0f, 0.0f};
+      if (!gCell->isStdInstance() ) continue;
+      
+      float cx = gCell->cx(); 
+      float cy = gCell->cy();
+      // grid index calculation  
+      float grid_x = (cx - core_lx_) / bin_size_x_ - 0.5f;
+      float grid_y = (cy - core_ly_) / bin_size_y_ - 0.5f;
+      int p = static_cast<int>(std::floor(grid_x));
+      int q = static_cast<int>(std::floor(grid_y));
+      // weight (alpha, beta) in paper
+      float dx = grid_x - p;
+      float dy = grid_y - q;
+      
+      // X axis Force (Offset 0)
+      float fx_bl = getBinValue(p,     q,     0); // (p, q)
+      float fx_br = getBinValue(p + 1, q,     0); // (p+1, q)
+      float fx_tl = getBinValue(p,     q + 1, 0); // (p, q+1)
+      float fx_tr = getBinValue(p + 1, q + 1, 0); // (p+1, q+1)
+
+      // Y axis Force (Offset 1)
+      float fy_bl = getBinValue(p,     q,     1);
+      float fy_br = getBinValue(p + 1, q,     1);
+      float fy_tl = getBinValue(p,     q + 1, 1);
+      float fy_tr = getBinValue(p + 1, q + 1, 1);  
+      
+      // bilinear interpolation
+      float cell_fx = (1 - dx) * (1 - dy) * fx_bl +
+                      dx * (1 - dy) * fx_br +
+                      (1 - dx) * dy * fx_tl +
+                      dx * dy * fx_tr;
+      float cell_fy = (1 - dx) * (1 - dy) * fy_bl +
+                      dx * (1 - dy) * fy_br +
+                      (1 - dx) * dy * fy_tl +
+                      dx * dy * fy_tr;
+      diffusionForceVec[i].x = cell_fx;
+      diffusionForceVec[i].y = cell_fy;
+    }
+  }
 }
 
 void NesterovPlace::npUpdatePrevGradient(
@@ -1065,6 +1140,8 @@ int NesterovPlace::doNesterovPlace(int start_iter)
   }
 
   // Core Nesterov Loop
+  // *************** Main Loop ***************
+  // modified
   int nesterov_iter = start_iter;
   for (; nesterov_iter < npVars_.maxNesterovIter; nesterov_iter++) {
     const float prevA = curA;
@@ -1077,6 +1154,34 @@ int NesterovPlace::doNesterovPlace(int start_iter)
     const float coeff = (prevA - 1.0) / curA;
 
     doBackTracking(coeff);
+
+    bool is_rudy_update_needed = (nesterov_iter == 0) ||
+                                 (nesterov_iter % rudyUpdateInterval_ == 0);
+    if (rb_ && is_rudy_update_needed) {
+      // RUDY update
+      rb_->updateCongestionMap(); 
+      // compute diffusion force for each bin
+      rb_->computeDiffusionForceBin();
+      // compute diffusion force for each cell
+      // diffusion force is stored in diffusionForce_ (class NesterovBase)
+      computeDiffusionForceCell(rb_->getDiffusionForceBin());
+
+      currDiffusionCoeff_ = baseDiffusionCoeff_;
+
+      log_->info(GPL, 9001, "Iter {}: RUDY Updated! Reset Coeff to 1.0", nesterov_iter);
+    }
+    else {
+      // No RUDY update
+      // diffusion coeff decay
+      currDiffusionCoeff_ *= decayRate_;
+      if (currDiffusionCoeff_ < minDiffusionCoeff_) {
+        currDiffusionCoeff_ = minDiffusionCoeff_;
+      }
+    }
+    for (auto& nb : nbVec_) {
+      // NesterovBase 안에 이 함수(Setter)를 만들어야 함 (Step 3 참조)
+      nb->setDiffusionCoeff(currDiffusionCoeff_);
+    }
 
     // Adjust Phi dynamically for larger designs
     for (auto& nb : nbVec_) {

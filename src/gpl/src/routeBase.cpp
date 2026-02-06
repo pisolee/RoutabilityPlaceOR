@@ -428,6 +428,100 @@ void RouteBase::calculateRudyTiles()
   }
 }
 
+// piso change ----------------------------------------------
+void RouteBase::updateCongestionMap() {
+  
+  grt::Rudy* rudy = grouter_->getRudy();
+
+  // calculate RUDY value
+  rudy->calculateRudy();
+
+  tg_->setNumRoutingLayers(0);  
+  tg_->setLx(0);
+  tg_->setLy(0);
+  tg_->setTileSize(rudy->getTileSize(), rudy->getTileSize());
+
+  int x_grids, y_grids;
+  grouter_->getGridSize(x_grids, y_grids);
+  tg_->setTileCnt(x_grids, y_grids);
+  tg_->initTiles(rbVars_.useRudy);
+
+  // RUDY value mapping to tiles
+  for (auto& tile : tg_->tiles()) {
+    // rudy_tile -> grt::Rudy::Tile
+    // tile -> gpl::Tile
+    const auto& rudy_tile = rudy->getTile(tile->x(), tile->y());
+
+    float local_congestion = rudy_tile.getRudyLocal();
+    float global_congestion = rudy_tile.getRudyGlobal();
+
+    //  congestion = alpha * Local_congestion + beta * Global_congestiob
+    float final_congestion = (alpha_ * local_congestion) + (beta_ * global_congestion);
+    tile->setCongestion(final_congestion);
+  }
+  // density manipulation !!! here!! -------------------------------------------
+  // TODO
+  // ---------------------------------------------------------------------------
+}
+
+void RouteBase::computeDiffusionForceBin() {
+  
+  int cntX = tg_->tileCntX();
+  int cntY = tg_->tileCntY();
+
+  if (diffusion_force_bin_.size() != static_cast<size_t>(cntX * cntY * 2)) {
+    diffusion_force_bin_.assign(cntX * cntY * 2, 0.0f);
+  }
+  
+  for (int y = 0; y < cntY; ++y) {
+    for (int x = 0; x < cntX; ++x) {
+
+      int idx_curr = y * cntX + x;
+      int vec_idx - idx_curr * 2;
+      Tile* currTile = tg_->tiles()[idx_curr];
+      float congestion_curr = currTile->getCongestion();
+
+      // prevent dividing with 0
+      if (congestion_curr < 1e-6) {
+        currTile->setForceX(0.0f);
+        currTile->setForceY(0.0f);
+        diffusion_force_bin_[vec_idx] = 0.0f;
+        diffusion_force_bin_[vec_idx + 1] = 0.0f;
+        continue;
+      }
+      // clmaping (when left/right/up/down is boundary
+      // set the boudnary as current index
+      int x_left  = (x > 0) ? x - 1 : x;
+      int x_right = (x < cntX - 1) ? x + 1 : x;
+      int y_down  = (y > 0) ? y - 1 : y;
+      int y_up    = (y < cntY - 1) ? y + 1 : y;
+      // index of 1-D vector (tg_->tiles())
+      // 2D -> 1D
+      int idx_left  = y * cntX + x_left;
+      int idx_right = y * cntX + x_right;
+      int idx_down  = y_down * cntX + x;
+      int idx_up    = y_up * cntX + x;
+      // congestion info
+      float congestion_left  = tg_->tiles()[idx_left]->getCongestion();
+      float congestion_right = tg_->tiles()[idx_right]->getCongestion();
+      float congestion_down  = tg_->tiles()[idx_down]->getCongestion();
+      float congestion_up    = tg_->tiles()[idx_up]->getCongestion();
+      // Force calculation
+      // v = - (d_next - d_prev) / (2 * d_curr)
+      float forceX = - (congestion_right - congestion_left) / (2.0f * congestion_curr);
+      float forceY = - (congestion_up - congestion_down)    / (2.0f * congestion_curr);
+
+      // set desity force to each tile
+      diffusion_force_bin_[vec_idx] = forceX;
+      diffusion_force_bin_[vec_idx + 1] = forceY;
+      currTile->setForceX(forceX);
+      currTile->setForceY(forceY);
+    }
+  }
+}
+
+// ----------------------------------------------------------
+
 // fill
 //
 // TileGrids'

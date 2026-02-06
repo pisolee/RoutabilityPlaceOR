@@ -297,6 +297,11 @@ void GCell::writeAttributesToCSV(std::ostream& out) const
   out << "," << densityScale_ << "," << gradientX_ << "," << gradientY_;
 }
 
+void GCell::setDiffusionForce(float forceX, forceY) {
+  diff_force_x_ = forceX;
+  diff_force_y_ = forceY;
+}
+
 ////////////////////////////////////////////////
 // GNet
 
@@ -2681,6 +2686,10 @@ float NesterovBase::getStepLength(
 // nb_->updateWireLengthForceWA(wireLengthCoefX_, wireLengthCoefY_); // WL
 // update
 //
+void NesterovBase::resizeDiffusionForce() {
+  diffusionForce_.resize(nb_gcells_.size(), {0.0f, 0.0f});
+}
+
 void NesterovBase::updateGradients(std::vector<FloatPoint>& sumGrads,
                                    std::vector<FloatPoint>& wireLengthGrads,
                                    std::vector<FloatPoint>& densityGrads,
@@ -2706,9 +2715,11 @@ void NesterovBase::updateGradients(std::vector<FloatPoint>& sumGrads,
   // wireLengthGradSum_, densityGradSum_, gradSum)
   for (size_t i = 0; i < nb_gcells_.size(); i++) {
     GCell* gCell = nb_gcells_.at(i);
-    wireLengthGrads[i]
-        = nbc_->getWireLengthGradientWA(gCell, wlCoeffX, wlCoeffY);
+    // wirelength grad
+    wireLengthGrads[i] = nbc_->getWireLengthGradientWA(gCell, wlCoeffX, wlCoeffY);
+    // density grad
     densityGrads[i] = getDensityGradient(gCell);
+
 
     // Different compiler has different results on the following formula.
     // e.g. wireLengthGradSum_ += fabs(~~.x) + fabs(~~.y);
@@ -2722,8 +2733,13 @@ void NesterovBase::updateGradients(std::vector<FloatPoint>& sumGrads,
     densityGradSum_ += std::fabs(densityGrads[i].x);
     densityGradSum_ += std::fabs(densityGrads[i].y);
 
-    sumGrads[i].x = wireLengthGrads[i].x + densityPenalty_ * densityGrads[i].x;
-    sumGrads[i].y = wireLengthGrads[i].y + densityPenalty_ * densityGrads[i].y;
+    // piso change
+    // diffusion force 
+//    float diffusionForceX = diffusionForce_[i].x;
+//    float diffusionForceY = diffusionForce_[i].y;
+
+    sumGrads[i].x = wireLengthGrads[i].x + densityPenalty_ * densityGrads[i].x + diffusionCoeff_ * diffusionForce_[i].x;
+    sumGrads[i].y = wireLengthGrads[i].y + densityPenalty_ * densityGrads[i].y + diffusionCoeff_ * diffusionForce_[i].y;
 
     FloatPoint wireLengthPreCondi = nbc_->getWireLengthPreconditioner(gCell);
     FloatPoint densityPrecondi = getDensityPreconditioner(gCell);

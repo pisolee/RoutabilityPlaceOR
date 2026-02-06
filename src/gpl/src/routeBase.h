@@ -52,9 +52,17 @@ class Tile
 
   // setter funcs
   void setInflationRatio(float ratio);
+  void setCongestion(float val) { congestion_ = val; }
+
+  // getter
+  float getCongestion() const { return congestion_; }
+  float getForceX() const { return forceX_; }
+  float getForceY() const { return forceY_; }
 
   // accumulated Ratio as iteration goes on
   void setInflatedRatio(float ratio);
+  void setForceX(float fx) { forceX_ = fx; }
+  void setForceY(float fy) { forceY_ = fy; }
 
  private:
   // the followings will store
@@ -72,6 +80,12 @@ class Tile
   // to bloat cells in tile
   float inflationRatio_ = 1.0;
   float inflatedRatio_ = 0;
+
+  float congestion_ = 0.0f;
+
+  // force (velocity)
+  float forceX_ = 0.0f;
+  float forceY_ = 0.0f;
 };
 
 class TileGrid
@@ -159,6 +173,10 @@ class RouteBase
   void calculateRudyTiles();
   void updateRudyAverage(bool verbose = true);
 
+  std::pair<int, int> getGridSize() const { return {tg_->tileCntX(), tg_->tileCntXY()}; }
+  int getTileSize() const { return tg_->tileSizeX(); }
+  std::pair<int, int> getGridOrigin() const { return {tg_->lx(), tg_->ly()}; }
+
   float getRudyAverage() const { return final_average_rc_; }
   int getOverflowedTilesCount() const { return overflowed_tiles_count_; }
   int getTotalTilesCount() const { return tg_->tiles().size(); }
@@ -174,8 +192,20 @@ class RouteBase
   std::vector<int64_t> inflatedAreaDelta() const;
   int64_t getTotalInflation() const;
   int getRevertCount() const;
+  // piso change ---------------------------
+  void updateCongestionMap();
+  void computeDiffusionForceBin();
+  const std::vector<float>& getDiffusionForceBin () { return diffusion_force_bin_; }
+  // ---------------------------------------
 
  private:
+  // piso change ---------------------------
+//  std::vector<float> congestion_map_local_;
+//  std::vector<float> congestion_map_global_;
+  float alpha_ = 0.7;
+  float beta_ = 0.3;
+  std::vector<float> diffusion_force_bin_;
+  // ---------------------------------------
   RouteBaseVars rbVars_;
   odb::dbDatabase* db_ = nullptr;
   grt::GlobalRouter* grouter_ = nullptr;

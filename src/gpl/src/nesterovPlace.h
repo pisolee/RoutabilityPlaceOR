@@ -78,6 +78,9 @@ class NesterovPlace
   void destroyCbkGCell(odb::dbInst*);
   void destroyCbkGNet(odb::dbNet*);
   void destroyCbkITerm(odb::dbITerm*);
+  
+  // piso
+  void computeDiffusionForceCell(const std::vector<float>& diffusion_force_bin)
 
  private:
   void updateIterGraphics(int iter,
@@ -130,6 +133,20 @@ class NesterovPlace
   std::shared_ptr<TimingBase> tb_;
   NesterovPlaceVars npVars_;
   std::unique_ptr<AbstractGraphics> graphics_;
+
+  int bin_cnt_x_ = 0;
+  int bin_cnt_y_ = 0;
+  int bin_size_x_ = 0;
+  int bin_size_y_ = 0;
+  int core_lx_ = 0;
+  int core_ly_ = 0;
+
+  // Diffusion Force control
+  int rudyUpdateInterval_ = 10;      // 몇 번마다 RUDY를 갱신할지 (예: 10)
+  float currDiffusionCoeff_ = 1.0f;  // 현재 턴에 적용될 실제 계수
+  float baseDiffusionCoeff_ = 1.0f;  // 초기화될 때의 최대 크기 (1.0)
+  float minDiffusionCoeff_ = 0.1f;   // 아무리 줄어들어도 이 밑으론 안 감
+  float decayRate_ = 0.95f;
 
   float total_sum_overflow_ = 0;
   float total_sum_overflow_unscaled_ = 0;
