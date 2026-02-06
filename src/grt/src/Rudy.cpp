@@ -137,11 +137,11 @@ void Rudy::processNet(odb::dbNet* net)
   // refer: https://ieeexplore.ieee.org/document/4211973
   if (!net->getSigType().isSupply()) {
     const auto net_rect = net->getTermBBox();
-    processIntersectionSignalNet(net_rect);
+    processIntersectionSignalNet(net, net_rect);
   }
 }
 
-void Rudy::processIntersectionSignalNet(const odb::Rect net_rect)
+void Rudy::processIntersectionSignalNet(odb::dbNet* net, const odb::Rect net_rect)
 {
   const auto net_area = net_rect.area();
   if (net_area == 0) {
@@ -152,15 +152,27 @@ void Rudy::processIntersectionSignalNet(const odb::Rect net_rect)
   const auto wire_area = hpwl * wire_width_;
   const auto net_congestion = wire_area / net_area;
 
+  // ---------------------------------------------------------
+  // pin_tile -> tile that each pin of this net belongs to
+  // ---------------------------------------------------------
+  std::set<std::pair<int, int>> pin_tiles;
+
+  for (odb::dbITerm* iterm : net->getITerms()) {
+    int x, y;
+    if (iterm->getAvgXY(&x, &y)) { 
+      int tx = (x - grid_block_.xMin()) / tile_size_;
+      int ty = (y - grid_block_.yMin()) / tile_size_;
+      if (tx >= 0 && tx < tile_cnt_x_ && ty >= 0 && ty < tile_cnt_y_) {
+        pin_tiles.insert({tx, ty});
+      }
+    }
+  }
+
   // Calculate the intersection range
-  const int min_x_index
-      = std::max(0, (net_rect.xMin() - grid_block_.xMin()) / tile_size_);
-  const int max_x_index = std::min(
-      tile_cnt_x_ - 1, (net_rect.xMax() - grid_block_.xMin()) / tile_size_);
-  const int min_y_index
-      = std::max(0, (net_rect.yMin() - grid_block_.yMin()) / tile_size_);
-  const int max_y_index = std::min(
-      tile_cnt_y_ - 1, (net_rect.yMax() - grid_block_.yMin()) / tile_size_);
+  const int min_x_index = std::max(0, (net_rect.xMin() - grid_block_.xMin()) / tile_size_);
+  const int max_x_index = std::min(tile_cnt_x_ - 1, (net_rect.xMax() - grid_block_.xMin()) / tile_size_);
+  const int min_y_index = std::max(0, (net_rect.yMin() - grid_block_.yMin()) / tile_size_);
+  const int max_y_index = std::min(tile_cnt_y_ - 1, (net_rect.yMax() - grid_block_.yMin()) / tile_size_);
 
   // Iterate over the tiles in the calculated range
   for (int x = min_x_index; x <= max_x_index; ++x) {
@@ -173,7 +185,10 @@ void Rudy::processIntersectionSignalNet(const odb::Rect net_rect)
         const auto tile_net_box_ratio = static_cast<float>(intersect_area)
                                         / static_cast<float>(tile_area);
         const auto rudy = net_congestion * tile_net_box_ratio * 100;
-        tile.addRudy(rudy);
+
+        bool is_local = (pin_tiles.find({x, y}) != pin_tiles.end());
+        // if (x,y) in pin_tiles -> is_local = True
+        tile.addRudy(rudy, is_local);
       }
     }
   }
@@ -195,6 +210,13 @@ void Rudy::Tile::setRect(int lx, int ly, int ux, int uy)
 void Rudy::Tile::addRudy(float rudy)
 {
   rudy_ += rudy;
+}
+
+void Rudy::Tile::addRudy(float rudy, bool is_local)
+{
+  if (is_local) {
+      rudy_local_ += rudy;
+  } else rudy_global_ += rudy;
 }
 
 }  // namespace grt

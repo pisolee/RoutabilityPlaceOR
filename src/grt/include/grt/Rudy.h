@@ -26,13 +26,24 @@ class Rudy
    public:
     odb::Rect getRect() const { return rect_; }
     void setRect(int lx, int ly, int ux, int uy);
-    void addRudy(float rudy);
+
+    void addRudy(float rudy, bool is_local);
+    
     float getRudy() const { return rudy_; }
-    void clearRudy() { rudy_ = 0.0; }
+    float getRudyLocal() const { return rudy_local_; }
+    float getRudyGlobal() const { return rudy_global_; }
+    
+    void clearRudy() { 
+      rudy_ = 0.0;
+      rudy_local_ = 0.0f;
+      rudy_global_ = 0.0f;
+    }
 
    private:
     odb::Rect rect_;
     float rudy_ = 0;
+    float rudy_local_ = 0.0f;
+    float rudy_global_ = 0.0f;
   };
 
   explicit Rudy(odb::dbBlock* block, grt::GlobalRouter* grouter);
@@ -69,7 +80,7 @@ class Rudy
   void getResourceReductions();
   Tile& getEditableTile(int x, int y) { return grid_.at(x).at(y); }
   void processNet(odb::dbNet* net);
-  void processIntersectionSignalNet(odb::Rect net_rect);
+  void processIntersectionSignalNet(odb::dbNet* net, odb::Rect net_rect);
 
   odb::dbBlock* block_;
   odb::Rect grid_block_;
